@@ -19,7 +19,7 @@
 @property (nonatomic) IMP originalIMP;
 @property (nonatomic) void **args;
 @property (nonatomic) NSArray *argumentTypes;
-@property (nonatomic) NSArray *arguments;
+@property (nonatomic) NSMutableArray *arguments;
 @end
 
 @implementation StingerParams
@@ -46,11 +46,35 @@
 }
 
 - (NSArray *)arguments {
-    return _arguments;
+    return [_arguments copy];
 }
 
 - (NSString *)typeEncoding {
     return _types;
+}
+
+/// 修改函数参数
+/// - Parameters:
+///   - arg: 对应的参数，值类型请转换为NSValue传递
+///   - idx: 序号，默认从0开始
+- (void)setArgument:(id)arg atIndex:(NSInteger)idx {
+    _arguments[idx]= arg;
+    NSString *argTypeStr = _argumentTypes[idx + 2];
+    const char *argType = argTypeStr.UTF8String;
+    if (strcmp(argType, @encode(id)) == 0 || strcmp(argType, @encode(Class)) == 0) {
+        void **objPointer = _args[idx + 2];
+        *objPointer = (__bridge void *)(arg);
+        return;
+    }
+    if ([arg isKindOfClass:NSValue.class]) {
+        if (@available(iOS 11.0, *)) {
+            NSUInteger valueSize = 0;
+            NSGetSizeAndAlignment(argType, &valueSize, NULL);
+            [(NSValue *)arg getValue:_args[idx + 2] size:valueSize];
+        } else {
+            [(NSValue *)arg getValue:_args[idx + 2]];
+        }
+    }
 }
 
 - (void)invokeAndGetOriginalRetValue:(void *)retLoc {
@@ -69,12 +93,11 @@
 #pragma - mark Private
 
 - (void)st_genarateArguments {
-    NSMutableArray *args = [[NSMutableArray alloc] initWithCapacity:_argumentTypes.count];
+    _arguments = [NSMutableArray array];
     for (NSUInteger i = 2; i < _argumentTypes.count; i++) {
         id argument = [self st_argumentWithType:_argumentTypes[i] index:i];
-        [args addObject:argument ?: NSNull.null];
+        [_arguments addObject:argument ?: NSNull.null];
     }
-    _arguments = [args copy];
 }
 
 - (id)st_argumentWithType:(NSString *)type index:(NSUInteger)index {
